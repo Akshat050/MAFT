@@ -1,0 +1,40 @@
+# MAFT Configuration for Interview Dataset
+
+dataset:
+  name: "interview"
+  data_path: "data/interview/"
+  max_length: 512
+  audio_max_length: 1000
+  visual_max_length: 1000
+
+model:
+  text_model_name: "bert-base-uncased"
+  hidden_dim: 768
+  num_heads: 12
+  num_layers: 1
+  audio_input_dim: 74  # Audio features
+  visual_input_dim: 35  # Visual features
+  num_classes: 2
+  dropout: 0.1
+  modality_dropout_rate: 0.1
+  freeze_bert: false
+
+training:
+  num_epochs: 15
+  batch_size: 8
+  lr: 1e-3
+  bert_lr: 2e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  classification_weight: 0.6  # Slightly higher weight for hire decision
+  regression_weight: 0.4
+  num_workers: 4
+  save_every: 3
+  output_dir: "experiments/interview"
+
+# Ablation study configurations
+ablation:
+  modalities_to_drop: ["text", "audio", "visual"]
+  early_stopping_patience: 5
+  num_seeds: 5 

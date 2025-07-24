@@ -1,0 +1,26 @@
+torch>=2.0.0
+transformers>=4.30.0
+datasets>=2.12.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tensorboard>=2.13.0
+wandb>=0.15.0
+pyyaml>=6.0
+tqdm>=4.65.0
+librosa>=0.10.0
+opencv-python>=4.8.0
+facenet-pytorch>=2.5.0
+pytorch-lightning>=2.0.0
+omegaconf>=2.3.0
+hydra-core>=1.3.0
+# Additional dependencies for GCP deployment
+google-cloud-storage>=2.10.0
+google-cloud-compute>=1.12.0
+google-auth>=2.17.0
+google-auth-oauthlib>=1.0.0
+requests>=2.31.0
+# CMU Multimodal SDK (optional - will be installed by prepare_mosei.py if needed)
+# git+https://github.com/A2Zadeh/CMU-MultimodalSDK.git 
