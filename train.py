@@ -70,27 +70,29 @@ def create_model(config: dict, device: torch.device) -> MAFT:
 
 def create_optimizer(model: MAFT, config: dict) -> optim.Optimizer:
     """Create optimizer with different learning rates for BERT and other parameters."""
-    # Separate BERT parameters from other parameters
     bert_params = []
     other_params = []
-    
+
     for name, param in model.named_parameters():
         if 'text_encoder.bert' in name:
             bert_params.append(param)
         else:
             other_params.append(param)
-    
-    # Create parameter groups with different learning rates
-    param_groups = [
-        {'params': bert_params, 'lr': config['training']['bert_lr']},
-        {'params': other_params, 'lr': config['training']['lr']}
-    ]
-    
+
+    param_groups = []
+    if bert_params:
+        param_groups.append({'params': bert_params, 'lr': float(config['training']['bert_lr'])})
+    if other_params:
+        param_groups.append({'params': other_params, 'lr': float(config['training']['lr'])})
+
+    if not param_groups:
+        raise ValueError("No parameters found for optimizer!")
+
     optimizer = optim.AdamW(
         param_groups,
-        weight_decay=config['training']['weight_decay']
+        weight_decay=float(config['training']['weight_decay'])
     )
-    
+
     return optimizer
 
 
@@ -144,16 +146,21 @@ def train_epoch(model: MAFT, train_loader, optimizer: optim.Optimizer, scheduler
     
     progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}')
     
+    print(f"Starting epoch {epoch+1} with {len(train_loader)} batches")
+    
     for batch_idx, batch in enumerate(progress_bar):
         # Move batch to device
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        
+        # Only pass the model the inputs it expects (not the targets)
+        model_inputs = {k: v for k, v in batch.items() if k not in ['classification_targets', 'regression_targets']}
         
         # Zero gradients
         optimizer.zero_grad()
         
         # Forward pass with mixed precision
         with autocast():
-            outputs = model(**batch)
+            outputs = model(**model_inputs)
             loss_dict = criterion(
                 outputs['classification_logits'],
                 outputs['regression_output'],
@@ -234,8 +241,11 @@ def validate_epoch(model: MAFT, val_loader, criterion: MAFTLoss, device: torch.d
             # Move batch to device
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
             
+            # Only pass the model the inputs it expects (not the targets)
+            model_inputs = {k: v for k, v in batch.items() if k not in ['classification_targets', 'regression_targets']}
+            
             # Forward pass
-            outputs = model(**batch)
+            outputs = model(**model_inputs)
             loss_dict = criterion(
                 outputs['classification_logits'],
                 outputs['regression_output'],
@@ -324,6 +334,10 @@ def main():
     # Load configuration
     config = load_config(args.config)
     
+    # Debug prints for config values
+    print("DEBUG: bert_lr =", config['training']['bert_lr'], type(config['training']['bert_lr']))
+    print("DEBUG: lr =", config['training']['lr'], type(config['training']['lr']))
+    
     # Setup device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"🚀 Using device: {device}")
@@ -411,8 +425,18 @@ def main():
     model = create_model(config, device)
     print(f"📊 Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
+    # Debug prints for config values
+    print("bert_lr:", config['training']['bert_lr'], type(config['training']['bert_lr']))
+    print("lr:", config['training']['lr'], type(config['training']['lr']))
+    
     # Create optimizer and scheduler
     optimizer = create_optimizer(model, config)
+    
+    # Debug prints for optimizer parameter groups
+    print("Optimizer parameter groups:")
+    for i, group in enumerate(optimizer.param_groups):
+        print(f"Group {i}: lr={group['lr']}, num_params={len(group['params'])}, type(lr)={type(group['lr'])}")
+    
     num_training_steps = len(train_loader) * config['training']['num_epochs']
     scheduler = create_scheduler(optimizer, num_training_steps, config)
     

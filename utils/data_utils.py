@@ -248,13 +248,16 @@ def create_dataloader(dataset: Dataset, batch_size: int = 8, shuffle: bool = Tru
             'regression_targets': regression_targets
         }
     
+    # Disable pin_memory when using CPU (num_workers=0)
+    pin_memory = num_workers > 0
+    
     return DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collate_fn,
-        pin_memory=True
+        pin_memory=pin_memory
     )
 
 
