@@ -73,28 +73,43 @@ def download_mosei_data(output_dir: str, use_mock: bool = False):
         return
     
     try:
-        # Import CMU SDK
-        from cmumosei import CMUMOSEI
-        
+        # Try importing the original CMU SDK (legacy)
+        try:
+            from cmumosei import CMUMOSEI
+            sdk_type = 'cmumosei'
+        except ImportError:
+            # Try importing the official mmsdk
+            from mmsdk import mmdatasdk
+            sdk_type = 'mmsdk'
+
         print("🔍 Loading CMU-MOSEI dataset...")
-        
+
         # Initialize dataset
-        mosei = CMUMOSEI()
-        
-        # Process each split
-        splits = ['train', 'val', 'test']
-        
-        for split in splits:
-            print(f"\n📊 Processing {split} split...")
-            process_mosei_split(mosei, split, output_path)
-            
+        if sdk_type == 'cmumosei':
+            mosei = CMUMOSEI()
+            # Process each split
+            splits = ['train', 'val', 'test']
+            for split in splits:
+                print(f"\n📊 Processing {split} split...")
+                process_mosei_split(mosei, split, output_path)
+        else:
+            # mmsdk usage: download and align data
+            # This is a simplified example; adapt as needed for your use case
+            dataset_path = str(output_path)
+            mmdatasdk.mmdataset(mmdatasdk.cmu_mosei.highlevel, dataset_path)
+            # You may want to add alignment and further processing here
+            print("✅ Downloaded CMU-MOSEI using mmsdk. Please check and align features as needed.")
+            # Optionally, you can call your own process_mosei_split here if you want to convert to your format
+
         # Create dataset info
         create_dataset_info(output_path)
-        
+
         print(f"\n✅ MOSEI data processed and saved to {output_path}")
-        
+
     except Exception as e:
         print(f"❌ Error loading CMU-MOSEI: {e}")
+        if not use_mock:
+            raise RuntimeError("Failed to download or process real CMU-MOSEI data. Please check your SDK installation and internet connection.") from e
         print("⚠️  Falling back to mock data...")
         create_mock_mosei_data(output_path)
 
@@ -163,6 +178,8 @@ def process_mosei_sample(sample, sample_id: int, split: str) -> dict:
         text = "No transcript available"
     
     # Extract audio features (COVAREP)
+    if 'covarep' not in sample:
+        raise KeyError(f"Sample {sample_id} in split '{split}' is missing 'covarep' audio features. Please check your data.")
     audio_features = sample.get('covarep', None)
     if audio_features is None:
         # Create mock audio features if not available
@@ -172,6 +189,8 @@ def process_mosei_sample(sample, sample_id: int, split: str) -> dict:
         audio_features = np.array(audio_features)
     
     # Extract visual features (FACET)
+    if 'facet' not in sample:
+        raise KeyError(f"Sample {sample_id} in split '{split}' is missing 'facet' visual features. Please check your data.")
     visual_features = sample.get('facet', None)
     if visual_features is None:
         # Create mock visual features if not available

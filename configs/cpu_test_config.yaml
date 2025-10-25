@@ -1,0 +1,41 @@
+# MAFT CPU Test Configuration
+# Optimized for minimal resource usage and quick testing
+
+dataset:
+  name: "synthetic"
+  max_length: 32  # Very short sequences
+  audio_max_length: 50
+  visual_max_length: 50
+
+model:
+  text_model_name: "bert-base-uncased"
+  hidden_dim: 384  # Reduced from 768
+  num_heads: 6     # Reduced from 12
+  num_layers: 1
+  audio_input_dim: 74
+  visual_input_dim: 35
+  num_classes: 2
+  dropout: 0.1
+  modality_dropout_rate: 0.1
+  freeze_bert: true  # Freeze BERT to reduce computation
+  return_attention: true
+
+training:
+  num_epochs: 5
+  batch_size: 1    # Minimal batch size
+  lr: 0.0001
+  bert_lr: 0.0     # No BERT training since it's frozen
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  classification_weight: 0.5
+  regression_weight: 0.5
+  num_workers: 0   # No multiprocessing for CPU
+  save_every: 5
+  output_dir: "experiments/cpu_test"
+
+# Test specific settings
+test:
+  synthetic_data: true
+  num_samples: 10
+  quick_validation: true 

@@ -4,7 +4,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.9+-red.svg)](https://pytorch.org/)
 
-**MAFT: A Simple Yet Effective Multimodal Fusion Transformer for Sentiment Analysis and Behavior Prediction**
+**MAFT: A Simple, Robust Multimodal Attention Fusion Transformer for Sentiment and Behavior Analysis**
 
 This repository contains the implementation of MAFT, a unified multimodal attention fusion transformer that achieves state-of-the-art performance on CMU-MOSEI and interview datasets while being more efficient and interpretable than existing approaches.
 
@@ -12,9 +12,16 @@ This repository contains the implementation of MAFT, a unified multimodal attent
 
 ### **Technical Innovations**
 - **Unified Fusion Architecture**: Single transformer block for all modalities with cross-modal attention, eliminating the need for complex multi-network systems
-- **Word-Level Alignment**: Robust alignment of text, audio, and visual features through unified attention mechanism
+- **Modality-Aware Embeddings**: Learnable modality embeddings to distinguish between text, audio, and visual tokens
 - **Modality Dropout**: Training-time robustness through random modality dropping (10% dropout rate)
 - **Multi-Task Learning**: Simultaneous classification and regression prediction with weighted loss combination
+- **Alignment-Aware Design**: Explicit handling of sequence-length mismatch and temporal misalignment
+
+### **Theoretical Advantages**
+- **Competition and Cooperation**: Modalities compete and cooperate within shared attention heads
+- **Soft Temporal Priors**: Relative time biases guide cross-stream alignment without hard constraints
+- **Robust Representations**: Modality dropout encourages redundancy and complementary representations
+- **Interpretability**: Attention mass reveals which stream informs decisions under noise
 
 ### **Practical Advantages**
 - **Efficiency**: 85M parameters vs 95M for MulT, 23% reduction in model size
@@ -26,6 +33,7 @@ This repository contains the implementation of MAFT, a unified multimodal attent
 - **Simplicity vs Performance**: Demonstrates that simpler architectures can achieve competitive or superior performance
 - **Cross-Modal Understanding**: Provides insights into how different modalities interact in sentiment analysis
 - **Real-World Applicability**: Validated on both academic (CMU-MOSEI) and practical (Interview) datasets
+- **Robustness**: Addresses common real-world failures through alignment-aware design and robustness augmentations
 
 ## 📊 **Results**
 
@@ -325,7 +333,7 @@ MAFT/
 └── README.md              # This file
 ```
 
-## 🔧 **Configuration**
+## �� **Configuration**
 
 ### **Model Configuration**
 ```yaml
@@ -398,6 +406,14 @@ python scripts/generate_results_table.py --dataset mosei --latex
 
 ## 🔬 **Analysis and Insights**
 
+### **Theoretical Intuition**
+MAFT's unified attention introduces two useful inductive biases:
+
+1. **Competition and Cooperation**: Modalities compete and cooperate within shared attention heads, where attention mass reveals which stream informs decisions under noise
+2. **Soft Temporal Priors**: Relative time biases guide cross-stream alignment without hard constraints, preserving flexibility while encouraging temporal consistency
+
+Together with modality dropout (encouraging redundancy) and agreement loss (aligning unimodal summaries), these biases promote robust, complementary representations compared to isolated pairwise stacks.
+
 ### **Attention Analysis**
 Our attention analysis reveals several key insights:
 
@@ -442,6 +458,9 @@ Key findings from ablation studies:
 - **Dynamic sequence length** handling
 - **Multi-dataset validation** across different domains
 - **Real-time inference** optimization
+- **Hierarchical fusion** for complex multimodal scenarios
+- **Domain transfer** capabilities
+- **Lightweight variants** for real-time edge deployment
 
 ## 🤝 **Contributing**
 
@@ -452,8 +471,8 @@ If you use MAFT in your research, please cite our paper:
 
 ```bibtex
 @inproceedings{maft2024,
-  title={MAFT: Multimodal Attention Fusion Transformer for Sentiment Analysis},
-  author={Your Name and Co-authors},
+  title={MAFT: A Simple, Robust Multimodal Attention Fusion Transformer for Sentiment and Behavior Analysis},
+  author={Akshat Bhatt},
   booktitle={Proceedings of the Conference},
   year={2024}
 }
@@ -472,4 +491,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 **Contact**
 
-For questions and feedback, please open an issue on GitHub or contact us at [maft-research@example.com].
+For questions and feedback, please open an issue on GitHub or contact us at [bhatt.ak@northeastern.edu].
