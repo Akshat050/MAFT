@@ -1,0 +1,85 @@
+name: MAFT Validation Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, 3.11]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        pip install transformers psutil scipy numpy
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Run validation base tests
+      run: |
+        python test_validation_base.py
+    
+    - name: Run synthetic data tests
+      run: |
+        python test_synthetic_data.py
+    
+    - name: Run MAFT integration tests
+      run: |
+        python test_maft_integration.py
+    
+    - name: Run quick training tests
+      run: |
+        python test_maft_quick_train.py
+    
+    - name: Test model import
+      run: |
+        python -c "from models.maft import MAFT; print('✅ MAFT import successful')"
+    
+    - name: Test validation system import
+      run: |
+        python -c "from validation_system import TestResult, ValidationReport; print('✅ Validation system import successful')"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: 3.11
+    
+    - name: Install linting tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+    
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Check code formatting with black
+      run: |
+        black --check --diff .
+      continue-on-error: true
+    
+    - name: Check import sorting with isort
+      run: |
+        isort --check-only --diff .
+      continue-on-error: true
