@@ -11,7 +11,7 @@ model:
   text_model_name: "bert-base-uncased"
   hidden_dim: 384  # Reduced from 768
   num_heads: 6     # Reduced from 12
-  num_layers: 1
+  num_layers: 2
   audio_input_dim: 74
   visual_input_dim: 35
   num_classes: 2
@@ -30,7 +30,8 @@ training:
   max_grad_norm: 1.0
   classification_weight: 0.5
   regression_weight: 0.5
-  num_workers: 0   # No multiprocessing for CPU
+  consistency_weight: 0.1
+  num_workers: 4
   save_every: 5
   output_dir: "experiments/cpu_test"
 

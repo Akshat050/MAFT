@@ -5,10 +5,11 @@ from typing import Dict
 
 from .encoders import TextEncoder, AudioEncoder, VisualEncoder
 from .fusion import FusionTransformer, ModalityDropout
-from .quality import QualityEstimator
 
 
 class MultiTaskHead(nn.Module):
+    """Multi-task prediction head for classification and regression."""
+    
     def __init__(self, hidden_dim: int = 768, num_classes: int = 2, dropout: float = 0.1):
         super().__init__()
         self.cls = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden_dim, num_classes))
@@ -22,6 +23,15 @@ class MultiTaskHead(nn.Module):
 
 
 def _mean_pool(feats: torch.Tensor, pad: torch.Tensor) -> torch.Tensor:
+    """Compute mean pooling over valid (non-padded) tokens.
+    
+    Args:
+        feats: [B, L, H] Feature tensor
+        pad: [B, L] Boolean mask where True indicates padding
+    
+    Returns:
+        [B, H] Mean-pooled features
+    """
     # feats [B, L, H], pad [B, L] True for pad
     mask = (~pad).unsqueeze(-1).float()
     summed = (feats * mask).sum(1)
@@ -30,6 +40,41 @@ def _mean_pool(feats: torch.Tensor, pad: torch.Tensor) -> torch.Tensor:
 
 
 class MAFT(nn.Module):
+    """
+    Multimodal Attention Fusion Transformer (MAFT).
+
+    A unified transformer architecture for robust multimodal sentiment and behavior
+    analysis. MAFT processes text, audio, and visual inputs through modality-specific
+    encoders, then fuses them using a shared transformer with modality-aware embeddings.
+
+    Key features:
+        - Unified cross-modal self-attention (simpler than pairwise attention)
+        - Scheduled modality dropout for robustness training
+        - Bottleneck token aggregation for efficiency
+        - Symmetric KL consistency loss between modality-specific predictions
+
+    Args:
+        text_model_name: Name of pretrained text model (default: "bert-base-uncased")
+        hidden_dim: Hidden dimension size (default: 768)
+        num_heads: Number of attention heads (default: 12)
+        num_layers: Number of transformer layers (default: 2)
+        audio_input_dim: Input dimension of audio features (default: 74)
+        visual_input_dim: Input dimension of visual features (default: 35)
+        num_classes: Number of classification classes (default: 2)
+        dropout: Dropout probability (default: 0.1)
+        modality_dropout_rate: Probability of dropping entire modalities (default: 0.1)
+        freeze_bert: Whether to freeze BERT parameters (default: False)
+
+    Architecture:
+        Input → Unimodal Encoders → Modality Dropout → Fusion Transformer 
+        → Bottleneck Aggregation → Task Heads
+
+    Example:
+        >>> model = MAFT(hidden_dim=768, num_layers=2, num_classes=2)
+        >>> outputs = model(batch)
+        >>> loss, parts = compute_loss(outputs, batch, lambdas)
+    """
+    
     def __init__(
         self,
         text_model_name: str = "bert-base-uncased",
@@ -48,10 +93,6 @@ class MAFT(nn.Module):
         self.audio_enc = AudioEncoder(audio_input_dim, hidden_dim, 2, dropout, True)
         self.visual_enc = VisualEncoder(visual_input_dim, hidden_dim, 2, dropout, True)
 
-        self.q_text = QualityEstimator(hidden_dim)
-        self.q_audio = QualityEstimator(hidden_dim)
-        self.q_visual = QualityEstimator(hidden_dim)
-
         self.fusion = FusionTransformer(
             hidden_dim=hidden_dim,
             num_heads=num_heads,
@@ -69,24 +110,39 @@ class MAFT(nn.Module):
         self.cls_v = nn.Linear(hidden_dim, num_classes)
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass of MAFT model.
+
+        Args:
+            batch: Dictionary containing:
+                - input_ids: [B, L] Token IDs for text
+                - attention_mask: [B, L] Attention mask (1=valid, 0=padding)
+                - audio: [B, La, D_a] Audio features
+                - audio_mask: [B, La] Audio mask (1=valid, 0=padding)
+                - visual: [B, Lv, D_v] Visual features
+                - visual_mask: [B, Lv] Visual mask (1=valid, 0=padding)
+
+        Returns:
+            Dictionary containing:
+                - logits: [B, C] Main classification logits
+                - reg: [B, 1] Regression predictions
+                - logits_text: [B, C] Text-only auxiliary logits
+                - logits_audio: [B, C] Audio-only auxiliary logits
+                - logits_visual: [B, C] Visual-only auxiliary logits
+
+        Note:
+            During training, modality dropout randomly zeros entire modalities
+            with probability modality_dropout_rate (scheduled from 0.1 to 0.35).
+        """
         T, T_pad = self.text_enc(batch["input_ids"], batch["attention_mask"])  # [B, Lt, H], [B, Lt] True=PAD
         A, A_pad = self.audio_enc(batch["audio"], batch["audio_mask"])  # [B, La, H], [B, La]
         V, V_pad = self.visual_enc(batch["visual"], batch["visual_mask"])  # [B, Lv, H], [B, Lv]
-
-        # quality
-        Q_t = self.q_text(T, T_pad)
-        Q_a = self.q_audio(A, A_pad)
-        Q_v = self.q_visual(V, V_pad)
-
-        # save pre-drop summaries for reconstruction targets
-        A_sum = _mean_pool(A, A_pad).detach()
-        V_sum = _mean_pool(V, V_pad).detach()
 
         # modality dropout
         T, A, V, T_pad, A_pad, V_pad, drops = self.moddrop(T, A, V, T_pad, A_pad, V_pad)
 
         # fusion
-        _, Z = self.fusion(T, A, V, T_pad, A_pad, V_pad, q_text=Q_t, q_audio=Q_a, q_visual=Q_v)
+        _, Z = self.fusion(T, A, V, T_pad, A_pad, V_pad)
 
         # main heads
         out = self.head(Z)  # dict with logits and reg
@@ -95,12 +151,5 @@ class MAFT(nn.Module):
         out["logits_text"] = self.cls_t(_mean_pool(T, T_pad))
         out["logits_audio"] = self.cls_a(_mean_pool(A, A_pad))
         out["logits_visual"] = self.cls_v(_mean_pool(V, V_pad))
-
-        # reconstruction heads: predict A_sum and V_sum from Z only if dropped
-        out["rec_audio"] = Z  # project outside in loss for simplicity
-        out["rec_visual"] = Z
-        out["targets_audio_sum"] = A_sum
-        out["targets_visual_sum"] = V_sum
-        out["drops"] = drops
 
         return out

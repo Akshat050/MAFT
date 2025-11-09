@@ -4,7 +4,7 @@ from typing import Tuple
 
 
 class TextEncoder(nn.Module):
-    """Minimal text encoder without HuggingFace dependency"""
+    """Minimal text encoder with embedding and projection."""
     
     def __init__(
         self,
@@ -39,7 +39,7 @@ class TextEncoder(nn.Module):
 
 
 class AudioEncoder(nn.Module):
-    """Minimal audio encoder"""
+    """BiLSTM-based encoder for audio features."""
     
     def __init__(
         self,
@@ -84,7 +84,7 @@ class AudioEncoder(nn.Module):
 
 
 class VisualEncoder(nn.Module):
-    """Minimal visual encoder"""
+    """BiLSTM-based encoder for visual features."""
     
     def __init__(
         self,

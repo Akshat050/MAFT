@@ -1,11 +1,13 @@
 import math
-from typing import Tuple, Optional
+from typing import Tuple
 
 import torch
 import torch.nn as nn
 
 
 class SinusoidalPositionalEncoding(nn.Module):
+    """Standard sinusoidal positional encoding for transformers."""
+    
     def __init__(self, d_model: int, max_len: int = 10000):
         super().__init__()
         pe = torch.zeros(max_len, d_model)
@@ -20,6 +22,8 @@ class SinusoidalPositionalEncoding(nn.Module):
 
 
 class ModalityEmbedding(nn.Module):
+    """Learned embeddings to distinguish text/audio/visual tokens."""
+    
     def __init__(self, num_modalities: int = 3, hidden_dim: int = 768):
         super().__init__()
         self.emb = nn.Embedding(num_modalities, hidden_dim)
@@ -29,7 +33,7 @@ class ModalityEmbedding(nn.Module):
 
 
 class ModalityDropout(nn.Module):
-    """drops whole modalities per sample during training"""
+    """Randomly drops entire modalities during training for robustness."""
 
     def __init__(self, p: float = 0.1):
         super().__init__()
@@ -63,9 +67,7 @@ class ModalityDropout(nn.Module):
 
 
 class FusionTransformer(nn.Module):
-    """concatenates T/A/V tokens, adds modality + positional encodings,
-    injects quality bias, prepends K bottleneck tokens, runs TransformerEncoder,
-    returns token outputs and a gated-pooled bottleneck vector."""
+    """Unified transformer that fuses text, audio, and visual via self-attention with bottleneck aggregation."""
 
     def __init__(self, hidden_dim=768, num_heads=12, num_layers=2, dropout=0.1, num_bottlenecks=8):
         super().__init__()
@@ -82,7 +84,6 @@ class FusionTransformer(nn.Module):
         )
         self.encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
 
-        self.q_proj = nn.Linear(1, hidden_dim, bias=False)
         self.bottlenecks = nn.Parameter(torch.randn(1, num_bottlenecks, hidden_dim))
 
         self.gate = nn.Sequential(
@@ -100,9 +101,6 @@ class FusionTransformer(nn.Module):
         text_pad: torch.Tensor,
         audio_pad: torch.Tensor,
         visual_pad: torch.Tensor,
-        q_text: Optional[torch.Tensor] = None,
-        q_audio: Optional[torch.Tensor] = None,
-        q_visual: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         B, Lt, H = text_feats.shape
         La = audio_feats.size(1)
@@ -122,10 +120,6 @@ class FusionTransformer(nn.Module):
 
         X = X + self.mod_emb(mids)
         X = self.pos(X)
-
-        if q_text is not None:
-            qcat = torch.cat([q_text, q_audio, q_visual], dim=1).unsqueeze(-1)  # [B, Ltot, 1]
-            X = X + self.q_proj(qcat)
 
         bn = self.bottlenecks.expand(B, -1, -1)  # [B, K, H]
         X = torch.cat([bn, X], dim=1)  # [B, K+L, H]

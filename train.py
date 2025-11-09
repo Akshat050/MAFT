@@ -14,12 +14,12 @@ def schedule_dropout(epoch, total_epochs, p_min=0.05, p_max=0.35):
 
 def compute_loss(outputs, batch, lambdas):
     """
-    Compute multi-task loss with classification, regression, consistency, and reconstruction.
+    Compute multi-task loss with classification, regression, and consistency.
     
     Args:
         outputs: Model output dictionary
         batch: Batch dictionary with targets
-        lambdas: Loss weight dictionary with keys: reg, cons, rec
+        lambdas: Loss weight dictionary with keys: reg, cons
     
     Returns:
         total_loss: Weighted sum of all losses
@@ -45,39 +45,13 @@ def compute_loss(outputs, batch, lambdas):
     
     cons_loss = symmetric_kl_multi(logits_list, temperature=2.0)
     
-    # Reconstruction loss: only for samples where that modality was dropped
-    rec_loss = torch.tensor(0.0, device=cls_loss.device)
-    z = outputs["rec_audio"]  # using Z directly; simple linear project here
-    
-    # Create projection layers (in practice, these should be model parameters)
-    proj_a = nn.Linear(z.size(-1), outputs["targets_audio_sum"].size(-1)).to(z.device)
-    proj_v = nn.Linear(z.size(-1), outputs["targets_visual_sum"].size(-1)).to(z.device)
-    
-    drops = outputs["drops"]
-    
-    if drops["drop_a"] is not None and drops["drop_a"].any():
-        rec_a = proj_a(z[drops["drop_a"]])
-        tgt_a = outputs["targets_audio_sum"][drops["drop_a"]]
-        rec_loss = rec_loss + F.l1_loss(rec_a, tgt_a)
-    
-    if drops["drop_v"] is not None and drops["drop_v"].any():
-        rec_v = proj_v(z[drops["drop_v"]])
-        tgt_v = outputs["targets_visual_sum"][drops["drop_v"]]
-        rec_loss = rec_loss + F.l1_loss(rec_v, tgt_v)
-    
     # Total weighted loss
-    total = (
-        cls_loss
-        + lambdas["reg"] * reg_loss
-        + lambdas["cons"] * cons_loss
-        + lambdas["rec"] * rec_loss
-    )
+    total = cls_loss + lambdas["reg"] * reg_loss + lambdas["cons"] * cons_loss
     
     return total, {
         "classification_loss": cls_loss,
         "regression_loss": reg_loss,
         "consistency_loss": cons_loss,
-        "reconstruction_loss": rec_loss,
     }
 
 
@@ -104,7 +78,7 @@ def train_one_epoch(
     model.train()
     model.moddrop.p = schedule_dropout(epoch, total_epochs)
     
-    logs = dict(cls=0.0, reg=0.0, cons=0.0, rec=0.0, tot=0.0, n=0)
+    logs = dict(cls=0.0, reg=0.0, cons=0.0, tot=0.0, n=0)
     
     for batch in loader:
         # Move batch to device
@@ -128,7 +102,6 @@ def train_one_epoch(
         logs["cls"] += parts["classification_loss"].item()
         logs["reg"] += parts["regression_loss"].item()
         logs["cons"] += parts["consistency_loss"].item()
-        logs["rec"] += parts["reconstruction_loss"].item()
         logs["n"] += 1
     
     # Average losses

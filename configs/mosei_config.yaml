@@ -11,7 +11,7 @@ model:
   text_model_name: "bert-base-uncased"
   hidden_dim: 768
   num_heads: 12
-  num_layers: 1
+  num_layers: 2
   audio_input_dim: 74  # COVAREP features
   visual_input_dim: 35  # FACET features
   num_classes: 2
@@ -21,7 +21,7 @@ model:
 
 training:
   num_epochs: 20
-  batch_size: 2  # Reduced for CPU training
+  batch_size: 32
   lr: 0.0001
   bert_lr: 2e-5
   weight_decay: 0.01
@@ -29,7 +29,8 @@ training:
   max_grad_norm: 1.0
   classification_weight: 0.5
   regression_weight: 0.5
-  num_workers: 0  # Set to 0 for CPU to prevent hanging
+  consistency_weight: 0.1
+  num_workers: 4
   save_every: 5
   output_dir: "experiments/mosei"
 

@@ -11,7 +11,7 @@ model:
   text_model_name: "bert-base-uncased"
   hidden_dim: 768
   num_heads: 12
-  num_layers: 1
+  num_layers: 2
   audio_input_dim: 74  # Audio features
   visual_input_dim: 35  # Visual features
   num_classes: 2
@@ -29,6 +29,7 @@ training:
   max_grad_norm: 1.0
   classification_weight: 0.6  # Slightly higher weight for hire decision
   regression_weight: 0.4
+  consistency_weight: 0.1
   num_workers: 4
   save_every: 3
   output_dir: "experiments/interview"
