@@ -1,0 +1,54 @@
+# MAFT M4 Pro Configuration - IMPROVED
+# Optimized for 24GB Unified Memory - Full training (30 epochs)
+# Addresses: Overfitting, poor regression learning, low consistency
+
+dataset:
+  name: "synthetic"          # Change to "mosei" when using real data
+  max_length: 50
+  audio_max_length: 500
+  visual_max_length: 500
+
+model:
+  name: "MAFT"
+  hidden_dim: 768            # Full model size
+  num_heads: 12
+  num_layers: 2
+  dropout: 0.3               # ✅ Increased from 0.2 for better regularization
+  
+  audio_input_dim: 74
+  visual_input_dim: 35
+  
+  num_classes: 7
+  modality_dropout_rate: 0.2 # ✅ Start higher (was 0.1), schedules to 0.35
+
+training:
+  batch_size: 32             # Full batch size for 24GB
+  num_epochs: 30             # ✅ More epochs (was 20)
+  lr: 0.00003                # ✅ Lower LR (was 0.0001) - prevents fast overfitting
+  weight_decay: 0.001        # ✅ Stronger regularization (was 0.0001)
+  max_grad_norm: 0.5         # ✅ Tighter gradient clipping (was 1.0)
+  
+  # Loss weights - improved balance
+  classification_weight: 1.0
+  regression_weight: 1.0     # ✅ Equal importance (was 0.5)
+  consistency_weight: 0.3    # ✅ Higher to encourage modality agreement (was 0.1)
+  
+  # Learning rate scheduling
+  warmup_epochs: 3           # Gradual LR warmup
+  lr_scheduler: "cosine"     # Cosine annealing decay
+  min_lr_factor: 0.01        # Minimum LR = lr * 0.01
+  
+  # Early stopping
+  early_stopping_patience: 7 # Stop if no improvement for 7 epochs
+  
+  # Data augmentation
+  use_augmentation: true
+  augmentation:
+    temporal_mask_prob: 0.1  # Mask 10% of sequence
+    feature_noise_std: 0.05  # Add Gaussian noise to features
+  
+  # Logging
+  output_dir: "experiments/m4_pro_improved"
+  log_every: 10              # Log every 10 batches
+  save_best_only: true
+  save_every_n_epochs: 5     # Also save checkpoint every 5 epochs

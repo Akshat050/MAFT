@@ -82,11 +82,7 @@ class FusionTransformer(nn.Module):
             batch_first=True,
             activation="gelu",
         )
-        self.encoder = nn.TransformerEncoder(
-            enc_layer, 
-            num_layers=num_layers,
-            enable_nested_tensor=False  # MPS compatibility fix
-        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
 
         self.bottlenecks = nn.Parameter(torch.randn(1, num_bottlenecks, hidden_dim))
 

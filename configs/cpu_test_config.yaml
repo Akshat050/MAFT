@@ -1,42 +1,46 @@
-# MAFT CPU Test Configuration
-# Optimized for minimal resource usage and quick testing
+# MAFT CPU Test Configuration - IMPROVED
+# Addresses overfitting and training issues
+# Optimized for M4 Pro - Quick testing (5 epochs)
 
 dataset:
   name: "synthetic"
-  max_length: 32  # Very short sequences
-  audio_max_length: 50
-  visual_max_length: 50
+  max_length: 32              # Short sequences for testing
+  audio_max_length: 100
+  visual_max_length: 100
 
 model:
-  text_model_name: "bert-base-uncased"
-  hidden_dim: 384  # Reduced from 768
-  num_heads: 6     # Reduced from 12
+  name: "MAFT"
+  hidden_dim: 64              # Small for quick testing
+  num_heads: 2
   num_layers: 2
-  audio_input_dim: 74
-  visual_input_dim: 35
-  num_classes: 2
-  dropout: 0.1
-  modality_dropout_rate: 0.1
-  freeze_bert: true  # Freeze BERT to reduce computation
-  return_attention: true
+  dropout: 0.3                # ✅ Increased from 0.1 (better regularization)
+  
+  audio_input_dim: 74         # COVAREP features
+  visual_input_dim: 35        # Facet features
+  
+  num_classes: 7              # CMU-MOSEI sentiment classes
+  modality_dropout_rate: 0.15 # ✅ Start higher (was 0.1)
 
 training:
-  num_epochs: 5
-  batch_size: 1    # Minimal batch size
-  lr: 0.0001
-  bert_lr: 0.0     # No BERT training since it's frozen
-  weight_decay: 0.01
-  warmup_ratio: 0.1
-  max_grad_norm: 1.0
-  classification_weight: 0.5
-  regression_weight: 0.5
-  consistency_weight: 0.1
-  num_workers: 4
-  save_every: 5
-  output_dir: "experiments/cpu_test"
-
-# Test specific settings
-test:
-  synthetic_data: true
-  num_samples: 10
-  quick_validation: true 
+  batch_size: 16
+  num_epochs: 5               # Quick test
+  lr: 0.00005                 # ✅ Lower LR (was 0.0001) - prevents overfitting
+  weight_decay: 0.001         # ✅ Higher regularization (was 0.0001)
+  max_grad_norm: 0.5          # ✅ Tighter clipping (was 1.0)
+  
+  # Loss weights - improved balance
+  classification_weight: 1.0
+  regression_weight: 1.0      # ✅ Equal to classification (was 0.5)
+  consistency_weight: 0.3     # ✅ Higher (was 0.1)
+  
+  # Learning rate scheduling
+  warmup_epochs: 1            # Gradual warmup
+  lr_scheduler: "cosine"      # Cosine annealing
+  
+  # Early stopping
+  early_stopping_patience: 3  # Stop if no improvement for 3 epochs
+  
+  # Logging
+  output_dir: "experiments/cpu_test_improved"
+  log_every: 10               # Log every 10 batches
+  save_best_only: true

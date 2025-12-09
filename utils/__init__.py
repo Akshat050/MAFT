@@ -1,5 +1,14 @@
-from .data_utils import *
-from .metrics import *
-from .visualization import *
+# Utils module for MAFT
+# Only import modules that are actually used
 
-__all__ = ['data_utils', 'metrics', 'visualization'] 
+try:
+    from .augmentation import MultimodalAugmentation, get_augmentation_from_config
+except ImportError:
+    pass
+
+try:
+    from .logger import TrainingLogger
+except ImportError:
+    pass
+
+__all__ = ['augmentation', 'logger']
