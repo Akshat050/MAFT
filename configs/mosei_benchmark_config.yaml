@@ -12,32 +12,23 @@ model:
   hidden_dim: 768
   num_heads: 12
   num_layers: 2
-  dropout: 0.3
+  dropout: 0.2  # Reduced from 0.3
   audio_input_dim: 74
   visual_input_dim: 35
   num_classes: 7
-  modality_dropout_rate: 0.2
+  modality_dropout_rate: 0.15  # Reduced from 0.2
 
 training:
-  batch_size: 16              # ✅ Reduced from 32 (saves 50% memory)
+  batch_size: 16
   num_epochs: 40
-  lr: 0.00002
-  weight_decay: 0.002
-  max_grad_norm: 0.5
+  lr: 0.00005  # Lower LR to prevent explosion
+  weight_decay: 0.001
+  max_grad_norm: 1.0  # Increased from 0.5 for more stability
   
   classification_weight: 1.0
   regression_weight: 1.0
-  consistency_weight: 0.5
+  consistency_weight: 0.3
   
   warmup_epochs: 5
   lr_scheduler: "cosine"
-  min_lr_factor: 0.01
   early_stopping_patience: 10
-  
-  use_augmentation: true
-  augmentation:
-    temporal_mask_prob: 0.15
-    feature_noise_std: 0.08
-  
-  output_dir: "experiments/mosei_benchmark"
-  save_every_n_epochs: 5
