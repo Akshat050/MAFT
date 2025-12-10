@@ -89,9 +89,14 @@ class MAFT(nn.Module):
         freeze_bert: bool = False,
     ):
         super().__init__()
+        self.hidden_dim = hidden_dim
+        
         self.text_enc = TextEncoder(text_model_name, hidden_dim, freeze_bert, dropout)
         self.audio_enc = AudioEncoder(audio_input_dim, hidden_dim, 2, dropout, True)
         self.visual_enc = VisualEncoder(visual_input_dim, hidden_dim, 2, dropout, True)
+
+        # Projection layer for pre-computed text embeddings (e.g., GloVe 300d -> hidden_dim)
+        self.text_proj = nn.Linear(300, hidden_dim)  # For CMU-MOSEI GloVe embeddings
 
         self.fusion = FusionTransformer(
             hidden_dim=hidden_dim,
@@ -115,12 +120,13 @@ class MAFT(nn.Module):
 
         Args:
             batch: Dictionary containing:
-                - input_ids: [B, L] Token IDs for text
+                - input_ids: [B, L] Token IDs for text (when using BERT encoder)
                 - attention_mask: [B, L] Attention mask (1=valid, 0=padding)
+                - text: [B, L, H] Pre-computed text embeddings (optional, for CMU-MOSEI)
                 - audio: [B, La, D_a] Audio features
-                - audio_mask: [B, La] Audio mask (1=valid, 0=padding)
+                - audio_mask: [B, La] Audio mask (True=padding)
                 - visual: [B, Lv, D_v] Visual features
-                - visual_mask: [B, Lv] Visual mask (1=valid, 0=padding)
+                - visual_mask: [B, Lv] Visual mask (True=padding)
 
         Returns:
             Dictionary containing:
@@ -133,8 +139,20 @@ class MAFT(nn.Module):
         Note:
             During training, modality dropout randomly zeros entire modalities
             with probability modality_dropout_rate (scheduled from 0.1 to 0.35).
+            
+            The model supports two input modes:
+            1. BERT tokenizer mode: Uses input_ids via text_enc
+            2. Pre-computed embeddings: Uses 'text' directly (e.g., GloVe from CMU-MOSEI)
         """
-        T, T_pad = self.text_enc(batch["input_ids"], batch["attention_mask"])  # [B, Lt, H], [B, Lt] True=PAD
+        # Handle text input - support both BERT tokens and pre-computed embeddings
+        if "text" in batch and batch["text"].dim() == 3:
+            # Pre-computed embeddings (e.g., GloVe from CMU-MOSEI)
+            T = self.text_proj(batch["text"])  # [B, Lt, 300] -> [B, Lt, H]
+            T_pad = batch["attention_mask"] == 0  # Convert to padding mask (True=padding)
+        else:
+            # BERT tokenizer path (standard)
+            T, T_pad = self.text_enc(batch["input_ids"], batch["attention_mask"])  # [B, Lt, H], [B, Lt] True=PAD
+        
         A, A_pad = self.audio_enc(batch["audio"], batch["audio_mask"])  # [B, La, H], [B, La]
         V, V_pad = self.visual_enc(batch["visual"], batch["visual_mask"])  # [B, Lv, H], [B, Lv]
 
