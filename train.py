@@ -351,6 +351,14 @@ def main():
         scheduler.step()
         current_lr = optimizer.param_groups[0]['lr']
         
+        # MPS Memory Management - prevents crashes
+        if device.type == 'mps':
+            torch.mps.empty_cache()
+            if epoch % 5 == 0:  # Extra cleanup every 5 epochs
+                import gc
+                gc.collect()
+                torch.mps.synchronize()
+        
         # Print progress
         print(f"\nEpoch {epoch+1}/{config['training']['num_epochs']}")
         print(f"  Train: {train_logs['tot']:.4f} (cls={train_logs['cls']:.4f}, reg={train_logs['reg']:.4f}, cons={train_logs['cons']:.4f})")

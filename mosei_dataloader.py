@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MOSEI Data Loader for MAFT - FIXED VERSION"""
+"""MOSEI Data Loader for MAFT - FIXED VERSION with Inf handling"""
 
 import torch
 import pickle
@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 
 
 class MOSEIDataset(Dataset):
-    """MOSEI dataset for MAFT - properly handles GloVe embeddings"""
+    """MOSEI dataset for MAFT - properly handles GloVe embeddings and Inf values"""
     
     def __init__(self, data_dir, split='train', max_text_len=50, 
                  max_audio_len=500, max_visual_len=500):
@@ -35,14 +35,22 @@ class MOSEIDataset(Dataset):
             self.visual_scaler = None
     
     def _fit_scaler(self, feature_key):
-        """Fit StandardScaler on all features"""
+        """Fit StandardScaler on all features - handles Inf/NaN"""
         all_features = []
         for sample in self.samples[:1000]:  # Use first 1000 for efficiency
             features = np.array(sample[feature_key])
+            
+            # CRITICAL FIX: Clean Inf/NaN before fitting scaler
+            features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+            
             all_features.append(features)
         
         # Concatenate and fit
         all_features = np.vstack(all_features)
+        
+        # Double-check no Inf/NaN remain
+        all_features = np.nan_to_num(all_features, nan=0.0, posinf=0.0, neginf=0.0)
+        
         scaler = StandardScaler()
         scaler.fit(all_features)
         return scaler
@@ -68,9 +76,14 @@ class MOSEIDataset(Dataset):
         audio_feat = np.array(sample['audio_features'][:self.max_audio_len])
         audio_len = len(audio_feat)
         
+        # CRITICAL FIX: Clean Inf/NaN in audio features
+        audio_feat = np.nan_to_num(audio_feat, nan=0.0, posinf=0.0, neginf=0.0)
+        
         # Normalize audio features
         if self.audio_scaler is not None:
             audio_feat = self.audio_scaler.transform(audio_feat)
+            # Clean again after scaling (in case scaling introduced any issues)
+            audio_feat = np.nan_to_num(audio_feat, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Pad audio features
         if audio_len < self.max_audio_len:
@@ -83,9 +96,13 @@ class MOSEIDataset(Dataset):
         visual_feat = np.array(sample['visual_features'][:self.max_visual_len])
         visual_len = len(visual_feat)
         
+        # Clean Inf/NaN in visual features
+        visual_feat = np.nan_to_num(visual_feat, nan=0.0, posinf=0.0, neginf=0.0)
+        
         # Normalize visual features
         if self.visual_scaler is not None:
             visual_feat = self.visual_scaler.transform(visual_feat)
+            visual_feat = np.nan_to_num(visual_feat, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Pad visual features
         if visual_len < self.max_visual_len:
@@ -129,7 +146,7 @@ class MOSEIDataset(Dataset):
 
 def get_mosei_loaders(data_dir, batch_size=16, max_text_len=50, 
                       max_audio_len=500, max_visual_len=500, num_workers=0):
-    """Create MOSEI data loaders with proper normalization"""
+    """Create MOSEI data loaders with proper normalization and Inf handling"""
     
     train_dataset = MOSEIDataset(data_dir, 'train', max_text_len, 
                                   max_audio_len, max_visual_len)

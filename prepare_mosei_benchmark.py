@@ -1,293 +1,286 @@
 #!/usr/bin/env python3
 """
-Comprehensive MOSEI Data Preprocessing & Quality Analysis
-For research-grade data preparation
+Preprocess CMU-MOSEI benchmark dataset for MAFT training
+Converts SDK format into train/validation/test splits
+FINAL FIXED VERSION - Handles h5py serialization + label extraction
 """
 
-import pickle
+from mmsdk import mmdatasdk
 import numpy as np
+import pickle
 from pathlib import Path
-from collections import defaultdict
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from tqdm import tqdm
 
-
-class MOSEIDataCleaner:
-    """Analyzes and cleans MOSEI data with detailed statistics"""
+def score_to_class(score):
+    """
+    Convert continuous sentiment score to 7-class label
+    Standard MOSEI binning: [-3, 3] → [0, 6]
     
-    def __init__(self, data_dir):
-        self.data_dir = Path(data_dir)
-        self.stats = defaultdict(dict)
-        
-    def analyze_split(self, split='train'):
-        """Comprehensive analysis of data quality"""
-        print(f"\n{'='*70}")
-        print(f"ANALYZING {split.upper()} SPLIT")
-        print(f"{'='*70}")
-        
-        split_dir = self.data_dir / split
-        with open(split_dir / 'samples.pkl', 'rb') as f:
-            samples = pickle.load(f)
-        
-        print(f"Total samples: {len(samples)}")
-        
-        # Analyze each modality
-        self._analyze_modality(samples, 'text_features', 'Text (GloVe)')
-        self._analyze_modality(samples, 'audio_features', 'Audio (COVAREP)')
-        self._analyze_modality(samples, 'visual_features', 'Visual (FACET)')
-        self._analyze_targets(samples)
-        
-        return samples
-    
-    def _analyze_modality(self, samples, key, name):
-        """Detailed analysis of a single modality"""
-        print(f"\n{name} Features:")
-        print("-" * 50)
-        
-        all_features = []
-        nan_count = 0
-        inf_count = 0
-        zero_sequences = 0
-        sequence_lengths = []
-        
-        for sample in samples:
-            feat = np.array(sample[key])
-            all_features.append(feat)
-            sequence_lengths.append(len(feat))
-            
-            # Check for problematic values
-            if np.any(np.isnan(feat)):
-                nan_count += 1
-            if np.any(np.isinf(feat)):
-                inf_count += 1
-            if np.all(feat == 0):
-                zero_sequences += 1
-        
-        # Concatenate for statistics
-        all_feat_concat = np.vstack(all_features)
-        
-        print(f"  Feature dimension: {all_feat_concat.shape[1]}")
-        print(f"  Sequence lengths: min={min(sequence_lengths)}, "
-              f"max={max(sequence_lengths)}, mean={np.mean(sequence_lengths):.1f}")
-        print(f"\n  Data Quality Issues:")
-        print(f"    • Sequences with NaN: {nan_count} ({100*nan_count/len(samples):.2f}%)")
-        print(f"    • Sequences with Inf: {inf_count} ({100*inf_count/len(samples):.2f}%)")
-        print(f"    • All-zero sequences: {zero_sequences} ({100*zero_sequences/len(samples):.2f}%)")
-        
-        # Count individual NaN/Inf values
-        total_values = all_feat_concat.size
-        nan_values = np.sum(np.isnan(all_feat_concat))
-        inf_values = np.sum(np.isinf(all_feat_concat))
-        
-        print(f"\n  Individual Value Issues:")
-        print(f"    • NaN values: {nan_values:,} / {total_values:,} ({100*nan_values/total_values:.4f}%)")
-        print(f"    • Inf values: {inf_values:,} / {total_values:,} ({100*inf_values/total_values:.4f}%)")
-        
-        # Statistical analysis (on clean data)
-        clean_data = all_feat_concat[np.isfinite(all_feat_concat)]
-        if len(clean_data) > 0:
-            print(f"\n  Statistics (finite values only):")
-            print(f"    • Min: {np.min(clean_data):.4f}")
-            print(f"    • Max: {np.max(clean_data):.4f}")
-            print(f"    • Mean: {np.mean(clean_data):.4f}")
-            print(f"    • Std: {np.std(clean_data):.4f}")
-            print(f"    • Median: {np.median(clean_data):.4f}")
-            
-            # Check for outliers
-            q1 = np.percentile(clean_data, 25)
-            q3 = np.percentile(clean_data, 75)
-            iqr = q3 - q1
-            outlier_count = np.sum((clean_data < q1 - 3*iqr) | (clean_data > q3 + 3*iqr))
-            print(f"    • Outliers (3×IQR): {outlier_count:,} ({100*outlier_count/len(clean_data):.4f}%)")
-        
-        # Store stats for later use
-        self.stats[key] = {
-            'nan_count': nan_count,
-            'inf_count': inf_count,
-            'zero_sequences': zero_sequences,
-            'dim': all_feat_concat.shape[1],
-            'total_samples': len(samples)
-        }
-    
-    def _analyze_targets(self, samples):
-        """Analyze target distribution"""
-        print(f"\nTarget Labels:")
-        print("-" * 50)
-        
-        labels = [s['sentiment_label'] for s in samples]
-        scores = [s['sentiment_score'] for s in samples]
-        
-        # Classification label distribution
-        unique, counts = np.unique(labels, return_counts=True)
-        print(f"  Classification (7-class):")
-        for label, count in zip(unique, counts):
-            print(f"    Class {label}: {count} ({100*count/len(samples):.2f}%)")
-        
-        # Check for class imbalance
-        max_count = max(counts)
-        min_count = min(counts)
-        print(f"  Imbalance ratio: {max_count/min_count:.2f}:1")
-        
-        # Regression score distribution
-        print(f"\n  Regression scores:")
-        print(f"    Min: {min(scores):.4f}")
-        print(f"    Max: {max(scores):.4f}")
-        print(f"    Mean: {np.mean(scores):.4f}")
-        print(f"    Std: {np.std(scores):.4f}")
-    
-    def clean_and_save(self, samples, split, strategy='robust'):
-        """
-        Clean data and save preprocessed version
-        
-        Strategies:
-        - 'zero': Replace NaN/Inf with 0 (simple but loses information)
-        - 'median': Replace with per-feature median (better for sparse outliers)
-        - 'interpolate': Linear interpolation within sequence (temporal coherence)
-        - 'robust': Clip extreme values + median imputation (recommended)
-        """
-        print(f"\n{'='*70}")
-        print(f"CLEANING {split.upper()} SPLIT - Strategy: {strategy}")
-        print(f"{'='*70}")
-        
-        cleaned_samples = []
-        
-        for sample in samples:
-            cleaned_sample = sample.copy()
-            
-            # Clean each modality
-            for key in ['text_features', 'audio_features', 'visual_features']:
-                feat = np.array(sample[key])
-                
-                if strategy == 'zero':
-                    feat = np.nan_to_num(feat, nan=0.0, posinf=0.0, neginf=0.0)
-                
-                elif strategy == 'median':
-                    # Replace with per-feature median
-                    finite_mask = np.isfinite(feat)
-                    for dim in range(feat.shape[1]):
-                        col = feat[:, dim]
-                        if np.any(finite_mask[:, dim]):
-                            median_val = np.median(col[finite_mask[:, dim]])
-                            col[~finite_mask[:, dim]] = median_val
-                        else:
-                            col[:] = 0.0
-                        feat[:, dim] = col
-                
-                elif strategy == 'robust':
-                    # Clip extreme values first (3x IQR)
-                    finite_mask = np.isfinite(feat)
-                    if np.any(finite_mask):
-                        q1 = np.percentile(feat[finite_mask], 25)
-                        q3 = np.percentile(feat[finite_mask], 75)
-                        iqr = q3 - q1
-                        lower_bound = q1 - 3 * iqr
-                        upper_bound = q3 + 3 * iqr
-                        
-                        # Clip
-                        feat = np.clip(feat, lower_bound, upper_bound)
-                    
-                    # Then impute remaining NaN with median
-                    for dim in range(feat.shape[1]):
-                        col = feat[:, dim]
-                        finite_in_col = np.isfinite(col)
-                        if np.any(finite_in_col):
-                            median_val = np.median(col[finite_in_col])
-                            col[~finite_in_col] = median_val
-                        else:
-                            col[:] = 0.0
-                        feat[:, dim] = col
-                
-                elif strategy == 'interpolate':
-                    # Linear interpolation along time axis
-                    for dim in range(feat.shape[1]):
-                        col = feat[:, dim]
-                        nans = np.isnan(col) | np.isinf(col)
-                        
-                        if np.any(nans) and not np.all(nans):
-                            # Get valid indices
-                            valid_idx = np.where(~nans)[0]
-                            if len(valid_idx) > 0:
-                                # Interpolate
-                                col[nans] = np.interp(
-                                    np.where(nans)[0],
-                                    valid_idx,
-                                    col[valid_idx]
-                                )
-                        elif np.all(nans):
-                            col[:] = 0.0
-                        
-                        feat[:, dim] = col
-                
-                cleaned_sample[key] = feat.tolist()
-            
-            cleaned_samples.append(cleaned_sample)
-        
-        # Save cleaned data
-        output_dir = self.data_dir / f"{split}_cleaned"
-        output_dir.mkdir(exist_ok=True)
-        
-        output_path = output_dir / 'samples.pkl'
-        with open(output_path, 'wb') as f:
-            pickle.dump(cleaned_samples, f)
-        
-        print(f"✅ Saved cleaned data to: {output_path}")
-        print(f"   Total samples: {len(cleaned_samples)}")
-        
-        return cleaned_samples
-
-
-def main():
-    """Run comprehensive data analysis and cleaning"""
-    
-    data_dir = "data/mosei"
-    
-    cleaner = MOSEIDataCleaner(data_dir)
-    
-    # Analyze all splits
-    print("\n" + "="*70)
-    print("MOSEI DATA QUALITY ANALYSIS")
-    print("="*70)
-    
-    train_samples = cleaner.analyze_split('train')
-    valid_samples = cleaner.analyze_split('valid')
-    test_samples = cleaner.analyze_split('test')
-    
-    # Summary
-    print("\n" + "="*70)
-    print("SUMMARY & RECOMMENDATIONS")
-    print("="*70)
-    
-    # Check if cleaning is needed
-    needs_cleaning = False
-    for key in ['text_features', 'audio_features', 'visual_features']:
-        if cleaner.stats[key]['nan_count'] > 0 or cleaner.stats[key]['inf_count'] > 0:
-            needs_cleaning = True
-            break
-    
-    if needs_cleaning:
-        print("\n⚠️  DATA QUALITY ISSUES DETECTED!")
-        print("\nRecommended cleaning strategy: 'robust'")
-        print("  • Clips extreme outliers (beyond 3×IQR)")
-        print("  • Imputes NaN/Inf with per-feature median")
-        print("  • Preserves data distribution while removing artifacts")
-        
-        response = input("\nProceed with cleaning? (yes/no): ").strip().lower()
-        
-        if response == 'yes':
-            print("\nCleaning data...")
-            cleaner.clean_and_save(train_samples, 'train', strategy='robust')
-            cleaner.clean_and_save(valid_samples, 'valid', strategy='robust')
-            cleaner.clean_and_save(test_samples, 'test', strategy='robust')
-            
-            print("\n✅ All splits cleaned and saved!")
-            print("\nNext steps:")
-            print("  1. Update mosei_dataloader.py to use cleaned data")
-            print("  2. Remove np.nan_to_num() calls (data is now clean)")
-            print("  3. Re-run training with clean data")
+    Classes:
+    0: Highly Negative (≤ -2.5)
+    1: Negative (-2.5 to -1.5)
+    2: Weakly Negative (-1.5 to -0.5)
+    3: Neutral (-0.5 to 0.5)
+    4: Weakly Positive (0.5 to 1.5)
+    5: Positive (1.5 to 2.5)
+    6: Highly Positive (≥ 2.5)
+    """
+    if score <= -2.5:
+        return 0
+    elif score <= -1.5:
+        return 1
+    elif score <= -0.5:
+        return 2
+    elif score <= 0.5:
+        return 3
+    elif score <= 1.5:
+        return 4
+    elif score <= 2.5:
+        return 5
     else:
-        print("\n✅ DATA IS CLEAN - No preprocessing needed!")
-        print("   All features are finite and within reasonable ranges.")
+        return 6
 
 
-if __name__ == '__main__':
-    main()
+print("="*70)
+print("CMU-MOSEI DATASET PREPROCESSING (FINAL FIXED)")
+print("="*70)
+
+# Load dataset
+print("\n📂 Loading CMU-MOSEI benchmark dataset...")
+dataset = mmdatasdk.mmdataset('data/mosei_raw/')
+
+print("✅ Dataset loaded successfully")
+available_keys = list(dataset.computational_sequences.keys())
+print(f"   Available modalities: {available_keys}")
+
+# Extract features
+print("\n🔄 Extracting multimodal features...")
+
+text_data = dataset.computational_sequences['glove_vectors']
+audio_data = dataset.computational_sequences['COVAREP'] 
+visual_data = dataset.computational_sequences['FACET 4.2']
+
+video_ids = list(text_data.data.keys())
+print(f"   Total utterances: {len(video_ids)}")
+
+# Get sentiment labels
+print("\n📥 Retrieving sentiment annotations...")
+
+if 'All Labels' in dataset.computational_sequences:
+    labels_data = dataset.computational_sequences['All Labels']
+    print(f"   ✅ Labels already loaded: 'All Labels'")
+    print(f"   Label utterances: {len(labels_data.data)}")
+else:
+    # Try to load if not present
+    try:
+        dataset.add_computational_sequences(mmdatasdk.cmu_mosei.labels, 'data/mosei_raw/')
+        labels_data = dataset.computational_sequences['All Labels']
+        print(f"   ✅ Labels retrieved: 'All Labels'")
+    except Exception as e:
+        print(f"   ❌ CRITICAL ERROR - Cannot load labels: {e}")
+        raise
+
+# Validate labels
+if labels_data is None or len(labels_data.data) == 0:
+    raise ValueError("❌ No labels loaded! Cannot create dataset.")
+
+print(f"\n✅ Label validation passed - found {len(labels_data.data)} labeled utterances")
+
+# Inspect label structure
+print("\n🔍 Inspecting label structure...")
+first_vid_id = list(labels_data.data.keys())[0]
+first_label = labels_data.data[first_vid_id]['features']
+print(f"   Sample video ID: {first_vid_id}")
+print(f"   Label shape: {first_label.shape}")
+print(f"   Label dtype: {first_label.dtype}")
+print(f"   Label range: [{np.min(first_label):.4f}, {np.max(first_label):.4f}]")
+
+# Analyze label columns
+print(f"\n   Analyzing label columns...")
+all_label_data = []
+for vid_id in list(labels_data.data.keys())[:100]:
+    feats = labels_data.data[vid_id]['features']
+    all_label_data.append(feats)
+
+stacked = np.vstack(all_label_data)
+print(f"   Label matrix shape: {stacked.shape}")
+print(f"   Number of label dimensions: {stacked.shape[1] if len(stacked.shape) > 1 else 1}")
+
+if len(stacked.shape) > 1:
+    for col_idx in range(min(stacked.shape[1], 10)):
+        col_data = stacked[:, col_idx]
+        print(f"   Column {col_idx}: min={np.min(col_data):.3f}, max={np.max(col_data):.3f}, mean={np.mean(col_data):.3f}")
+    
+    print(f"\n   💡 Using column 0 for sentiment (verify this matches [-3, 3] range)")
+    sentiment_col_idx = 0
+else:
+    sentiment_col_idx = 0
+
+# Create standard splits
+print("\n📊 Creating data splits...")
+np.random.seed(42)
+np.random.shuffle(video_ids)
+
+n_total = len(video_ids)
+n_train = int(0.7 * n_total)
+n_valid = int(0.1 * n_total)
+
+splits = {
+    'train': video_ids[:n_train],
+    'valid': video_ids[n_train:n_train+n_valid],
+    'test': video_ids[n_train+n_valid:]
+}
+
+print(f"   Training:   {len(splits['train']):,} utterances")
+print(f"   Validation: {len(splits['valid']):,} utterances")
+print(f"   Test:       {len(splits['test']):,} utterances")
+
+# Process each split
+output_dir = Path('data/mosei')
+
+# Track statistics
+all_labels = []
+all_scores = []
+skipped_count = 0
+
+for split_name, ids in splits.items():
+    print(f"\n📝 Processing {split_name} split...")
+    
+    split_dir = output_dir / split_name
+    split_dir.mkdir(parents=True, exist_ok=True)
+    
+    samples = []
+    split_labels = []
+    split_scores = []
+    
+    for vid_id in tqdm(ids, desc=f'Processing {split_name}'):
+        try:
+            # Check if video has all modalities
+            if vid_id not in text_data.data or \
+               vid_id not in audio_data.data or \
+               vid_id not in visual_data.data or \
+               vid_id not in labels_data.data:
+                skipped_count += 1
+                continue
+            
+            # Extract features - FIX: Convert h5py views to numpy arrays
+            text_feat = np.array(text_data.data[vid_id]['features'])
+            audio_feat = np.array(audio_data.data[vid_id]['features'])
+            visual_feat = np.array(visual_data.data[vid_id]['features'])
+            
+            # Extract label
+            label_feat = np.array(labels_data.data[vid_id]['features'])
+            
+            if len(label_feat) == 0:
+                skipped_count += 1
+                continue
+            
+            # Extract sentiment score from column 0
+            if len(label_feat.shape) > 1 and label_feat.shape[1] > sentiment_col_idx:
+                sentiment_score = float(label_feat[0, sentiment_col_idx])
+            else:
+                sentiment_score = float(label_feat[0])
+            
+            # Convert to class label
+            sentiment_label = score_to_class(sentiment_score)
+            
+            sample = {
+                'id': vid_id,
+                'text': f"Utterance {vid_id}",
+                # FIX: Convert to regular numpy arrays and then to lists for pickling
+                'text_features': text_feat.astype(np.float32).tolist(),
+                'text_length': len(text_feat),
+                'audio_features': audio_feat.astype(np.float32).tolist(),
+                'audio_length': len(audio_feat),
+                'visual_features': visual_feat.astype(np.float32).tolist(),
+                'visual_length': len(visual_feat),
+                'sentiment_label': sentiment_label,
+                'sentiment_score': float(sentiment_score)
+            }
+            
+            samples.append(sample)
+            split_labels.append(sentiment_label)
+            split_scores.append(sentiment_score)
+            
+        except Exception as e:
+            # Skip utterances with errors
+            skipped_count += 1
+            continue
+    
+    # Save processed split
+    output_file = split_dir / 'samples.pkl'
+    with open(output_file, 'wb') as f:
+        pickle.dump(samples, f)
+    
+    print(f"   ✅ Processed {len(samples):,} utterances → {output_file}")
+    
+    # Show label distribution for this split
+    if len(split_labels) > 0:
+        unique, counts = np.unique(split_labels, return_counts=True)
+        print(f"   Label distribution:")
+        for label, count in zip(unique, counts):
+            print(f"     Class {label}: {count:4d} ({100*count/len(samples):5.2f}%)")
+    
+    all_labels.extend(split_labels)
+    all_scores.extend(split_scores)
+
+# Final validation
+print("\n" + "="*70)
+print("FINAL VALIDATION")
+print("="*70)
+
+print(f"\nTotal samples created: {len(all_labels)}")
+print(f"Skipped (missing data): {skipped_count}")
+
+if len(all_labels) == 0:
+    print("\n❌ CRITICAL ERROR: No samples created!")
+    raise ValueError("No valid samples generated")
+
+print(f"\nOverall sentiment score statistics:")
+print(f"  Min:  {min(all_scores):7.4f}")
+print(f"  Max:  {max(all_scores):7.4f}")
+print(f"  Mean: {np.mean(all_scores):7.4f}")
+print(f"  Std:  {np.std(all_scores):7.4f}")
+
+print(f"\nOverall class distribution:")
+unique, counts = np.unique(all_labels, return_counts=True)
+for label, count in zip(unique, counts):
+    print(f"  Class {label}: {count:5d} ({100*count/len(all_labels):5.2f}%)")
+
+# Critical validation check
+unique_labels = len(set(all_labels))
+unique_scores = len(set(all_scores))
+
+print(f"\n📊 Diversity check:")
+print(f"  Unique class labels: {unique_labels} / 7")
+print(f"  Unique scores: {unique_scores}")
+
+if unique_labels == 1:
+    print("\n❌ CRITICAL ERROR: All samples have the SAME label!")
+    print("   The bug still exists - label extraction failed.")
+    print(f"   All labels are: {list(set(all_labels))[0]}")
+    raise ValueError("Label extraction failed - all labels identical")
+
+if unique_scores == 1:
+    print("\n❌ CRITICAL ERROR: All samples have the SAME score!")
+    print("   The bug still exists - score extraction failed.")
+    print(f"   All scores are: {list(set(all_scores))[0]}")
+    raise ValueError("Score extraction failed - all scores identical")
+
+print("\n✅ LABEL VALIDATION PASSED!")
+print("   Labels and scores show proper diversity.")
+
+print("\n" + "="*70)
+print("✅ PREPROCESSING COMPLETE")
+print("="*70)
+print(f"\nOutput directory: {output_dir}/")
+print("\nNext steps:")
+print("  1. Inspect data: python3 inspect_mosei_samples.py")
+print("  2. Clean features (if needed): python3 prepare_mosei_benchmark.py")
+print("  3. Start training: python3 train.py configs/mosei_benchmark_config.yaml")
+print("\nExpected performance on benchmark:")
+print("  7-class Accuracy: 70-80%")
+print("  Binary Accuracy: 80-85%")
+print("  MAE: 0.6-0.8")
+print("  Pearson Correlation: 0.7-0.8")
+print("="*70)

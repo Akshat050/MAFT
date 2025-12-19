@@ -1,34 +1,32 @@
-# MAFT Configuration for CMU-MOSEI Benchmark - Memory Optimized
-
+# MAFT Configuration for CMU-MOSEI Benchmark - MPS Memory Optimized
 dataset:
   name: "mosei"
   data_dir: "data/mosei"
-  max_length: 50
-  audio_max_length: 500
-  visual_max_length: 500
+  max_length: 30           # Reduced from 50 to save memory
+  audio_max_length: 300    # Reduced from 500
+  visual_max_length: 300   # Reduced from 500
 
 model:
   name: "MAFT"
-  hidden_dim: 768
-  num_heads: 12
+  hidden_dim: 512          # Reduced from 768 to save GPU memory
+  num_heads: 8             # Reduced from 12
   num_layers: 2
-  dropout: 0.2  # Reduced from 0.3
+  dropout: 0.2
   audio_input_dim: 74
   visual_input_dim: 35
   num_classes: 7
-  modality_dropout_rate: 0.15  # Reduced from 0.2
+  modality_dropout_rate: 0.15
 
 training:
-  batch_size: 16
+  batch_size: 2            # Reduced from 16 - CRITICAL for MPS
   num_epochs: 40
-  lr: 0.00005  # Lower LR to prevent explosion
+  lr: 0.00005
   weight_decay: 0.001
-  max_grad_norm: 1.0  # Increased from 0.5 for more stability
-  
+  max_grad_norm: 1.0
   classification_weight: 1.0
   regression_weight: 1.0
   consistency_weight: 0.3
-  
   warmup_epochs: 5
   lr_scheduler: "cosine"
   early_stopping_patience: 10
+  output_dir: outputs/mosei_benchmark
