@@ -1,4 +1,4 @@
-# MAFT: Multimodal Attention Fusion Transformer
+# MAFT
 
 A PyTorch implementation of a multimodal transformer for sentiment analysis on text, audio, and visual inputs. This is **ongoing empirical work**, not a completed paper. The repository contains the model, training pipeline, and a validation framework I use to test changes before committing real-data runs.
 
@@ -24,49 +24,51 @@ These are the questions I'd like to answer once I have stable benchmark runs. Th
 
 MAFT processes text, audio, and visual sequences through modality-specific encoders, then fuses them with a single shared transformer.
 
-```
-text  ─► embedding + linear projection ──┐
-audio ─► linear + BiLSTM ────────────────┼─► concat + modality embeddings
-visual ─► linear + BiLSTM ───────────────┘    │
-                                              ▼
-                                    [bottleneck tokens] + [tokens]
-                                              │
-                                              ▼
-                              shared TransformerEncoder
-                                              │
-                              ┌───────────────┼───────────────┐
-                              ▼               ▼               ▼
-                         classification   regression    per-modality
-                         + temperature     head         auxiliary heads
-                                                      (used in consistency loss)
+```text
+text  -> embedding + linear projection --\
+audio -> linear + BiLSTM -----------------+-> concat + modality embeddings
+visual -> linear + BiLSTM ----------------/       |
+                                                  v
+                                      [bottleneck tokens] + [tokens]
+                                                  |
+                                                  v
+                                      shared TransformerEncoder
+                                                  |
+                               +------------------+------------------+
+                               v                  v                  v
+                         classification       regression        per-modality
+                         + temperature        head              auxiliary heads
+                                                              (consistency loss)
 ```
 
 Key design choices:
+
 - **Modality-aware embeddings** added to each token so the shared transformer can distinguish text/audio/visual positions.
 - **Bottleneck tokens** that attend to all modalities and produce a gated, pooled representation used by the prediction heads. Conceptually related to the bottlenecks in MBT (Nagrani et al., 2021).
 - **Scheduled modality dropout** that anneals from a low rate at the start of training to a higher rate later, randomly zeroing entire modalities for some samples to encourage robust representations.
 - **Symmetric-KL consistency loss** between per-modality auxiliary classifier heads, encouraging modality views to agree on the prediction.
-- **Quality-estimator masks** that distinguish valid tokens from padding throughout the model (one of the bugs that took longest to debug — see Known Issues below).
+- **Quality-estimator masks** that distinguish valid tokens from padding throughout the model.
 
-## Repository layout
+## Repository Layout
 
-```
+```text
 models/
   encoders.py       text / audio (BiLSTM) / visual (BiLSTM) encoders
   fusion.py         shared transformer with modality embeddings + bottlenecks
   maft.py           top-level model wiring encoders + fusion + heads
-  quality.py        per-token quality / mask handling
 losses/
   consistency.py    symmetric-KL multi-view consistency loss
 validation_system/
   data_models.py    TestResult / ValidationReport dataclasses
   synthetic_data.py controllable synthetic multimodal dataset
   utils.py          formatting, timing, logging helpers
-configs/            YAML configs for CPU/M-series test runs and MOSEI
+configs/            YAML configs for CPU, M-series, interview, and MOSEI runs
+scripts/            data preparation, analysis, baseline, and ablation scripts
+scripts/dev/        local diagnostics and one-off development utilities
 train.py            training loop with AMP, LR schedule, early stopping
 evaluate.py         evaluation with classification + regression metrics
-mosei_dataloader.py CMU-MOSEI loader (handles Inf/NaN in raw COVAREP features)
-tests/              forward-pass + architecture smoke tests
+mosei_dataloader.py CMU-MOSEI loader
+tests/              forward-pass, architecture, synthetic-data, and training tests
 ```
 
 ## Setup
@@ -74,55 +76,89 @@ tests/              forward-pass + architecture smoke tests
 Tested on Python 3.11 with PyTorch 2.x.
 
 ```bash
-pip install torch torchvision torchaudio
-pip install transformers numpy scipy scikit-learn pyyaml tqdm psutil
+pip install -r requirements.txt
 ```
 
-For CMU-MOSEI data preparation you additionally need the CMU Multimodal SDK; see `prepare_mosei_benchmark.py` for usage.
+For CMU-MOSEI data preparation you additionally need the CMU Multimodal SDK; see `prepare_mosei_benchmark.py` and `scripts/prepare_mosei.py` for usage.
 
 ## Running
 
-**Synthetic-data smoke test (fastest, no real data needed):**
+Synthetic-data smoke tests, no real data needed:
 
 ```bash
-python test_validation_base.py     # validation framework primitives
-python test_synthetic_data.py      # synthetic dataset correctness
-python test_maft_quick_train.py    # ~20-step training run on synthetic data
+pytest tests/test_validation_base.py
+pytest tests/test_synthetic_data.py
+pytest tests/test_maft_quick_train.py
 ```
 
-These should complete in under a minute on CPU and confirm the model trains and the loss decreases.
+These should complete quickly on CPU and confirm the model trains and the loss decreases.
 
-**CMU-MOSEI training (requires prepared data in `data/mosei/`):**
+CMU-MOSEI training, requiring prepared data in `data/mosei/`:
 
 ```bash
 python train.py --config configs/mosei_benchmark_config.yaml --device cuda
 ```
 
-On Apple Silicon, the MPS backend works after a one-line fix to the transformer encoder (`enable_nested_tensor=False`), which is already applied in `models/fusion.py`.
+On Apple Silicon:
+
+```bash
+python train.py --config configs/mosei_benchmark_config.yaml --device mps
+```
+
+Run a synthetic training smoke test:
+
+```bash
+python train.py --config configs/cpu_test_config.yaml --use_synthetic --device cpu
+```
+
+## Evaluation and Analysis
+
+Evaluate a checkpoint:
+
+```bash
+python evaluate.py --checkpoint outputs/mosei_benchmark/best_model.pth
+```
+
+Run baseline comparisons:
+
+```bash
+python scripts/run_baselines.py --config configs/mosei_benchmark_config.yaml --dataset mosei --num_seeds 5
+```
+
+Run ablations:
+
+```bash
+python scripts/run_ablations.py --config configs/mosei_benchmark_config.yaml --num_seeds 5
+```
+
+Analyze attention:
+
+```bash
+python scripts/analyze_attention.py \
+  --checkpoint outputs/mosei_benchmark/best_model.pth \
+  --config configs/mosei_benchmark_config.yaml \
+  --dataset mosei
+```
+
+Generate result tables:
+
+```bash
+python scripts/generate_results_table.py --dataset mosei
+```
 
 ## What works
 
 - Forward and backward passes are stable on synthetic and on cleaned MOSEI batches
-- Loss decreases consistently on the synthetic task (the validation harness checks this automatically)
-- Mixed-precision training, warmup + cosine LR schedule, and early stopping are wired and tested
-- The synthetic-data generator produces features with measurably tunable cross-modal correlation, so the model's response to varying correlation strength can be studied independently of MOSEI-specific noise
+- Loss decreases consistently on the synthetic task
+- Mixed-precision training, warmup + cosine LR schedule, and early stopping are wired
+- The synthetic-data generator produces features with measurably tunable cross-modal correlation
 
-## Known issues and limitations
+## Known Issues and Limitations
 
-- **No completed full benchmark run on CMU-MOSEI.** I do not currently have a number to report against published baselines on this dataset, and I do not want to publish synthetic-data numbers as if they were real-data numbers. Sample efficiency on smaller MOSEI subsets has been promising but is not a substitute for a clean full run.
-- **No baseline reproductions.** Comparisons to MulT, MISA, Self-MM, MMIM, etc. require running those baselines in the same training environment. I have not done that here. The earlier comparison tables in this README were not from runs I performed and have been removed.
-- **Compute-limited.** Training has been done on Apple Silicon (MPS) and CPU. Some configurations (large hidden dim, batch size > 4) are not stable in this setup, so the codebase has been tuned downward in places.
+- **No completed full benchmark run on CMU-MOSEI.** I do not currently have a number to report against published baselines on this dataset, and I do not want to publish synthetic-data numbers as if they were real-data numbers.
+- **No baseline reproductions.** Comparisons to MulT, MISA, Self-MM, MMIM, etc. require running those baselines in the same training environment. I have not done that here.
+- **Compute-limited.** Training has been done on Apple Silicon (MPS) and CPU. Some configurations are tuned downward for that setup.
 - **No published paper or preprint.** The previous BibTeX entry in this README claimed a publication that does not exist. I have removed it.
-
-## Failure modes I have fixed during development
-
-Listing these because they are part of what I have actually learned from this project:
-
-- **NaN / Inf in raw COVAREP audio features** propagated through standardization and then through the loss. Fixed by `np.nan_to_num` on raw features before fitting the `StandardScaler`, and again after scaling.
-- **MPS backend incompatibility with `nn.TransformerEncoder`'s nested-tensor fast path.** Resolved by passing `enable_nested_tensor=False` at encoder construction.
-- **Mask-convention bug in the quality estimator.** The module assumed `True == valid` while the rest of the codebase used `True == padding`. Silently produced wrong masks until I noticed attention weights collapsing in a specific run.
-- **`pack_padded_sequence` instabilities in the BiLSTM encoders** under variable-length audio batches. Replaced with a plain LSTM forward pass plus an explicit pad mask; small loss in efficiency, large gain in reliability.
-- **Label extraction from the CMU SDK** silently producing a single class for all samples on early runs because I was indexing the wrong column of `All Labels`. Added a sanity check that fails preprocessing if `len(set(labels)) == 1`.
 
 ## Roadmap
 
