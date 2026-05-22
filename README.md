@@ -158,7 +158,6 @@ python scripts/generate_results_table.py --dataset mosei
 - **No completed full benchmark run on CMU-MOSEI.** I do not currently have a number to report against published baselines on this dataset, and I do not want to publish synthetic-data numbers as if they were real-data numbers.
 - **No baseline reproductions.** Comparisons to MulT, MISA, Self-MM, MMIM, etc. require running those baselines in the same training environment. I have not done that here.
 - **Compute-limited.** Training has been done on Apple Silicon (MPS) and CPU. Some configurations are tuned downward for that setup.
-- **No published paper or preprint.** The previous BibTeX entry in this README claimed a publication that does not exist. I have removed it.
 
 ## Roadmap
 
